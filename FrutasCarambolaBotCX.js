@@ -2,6 +2,9 @@
 const dialogflow = require("dialogflow");
 var fs = require("fs");
 const {SessionsClient} = require('@google-cloud/dialogflow-cx');
+var chatbase = require('@google/chatbase');
+let ChatBaseApiKey = "";
+chatbase.setApiKey(ChatBaseApiKey);
 const projectId = "";
 const keyFilename = './dev/fruteriacarambola-credentials.json'
 let clientCX = new SessionsClient({projectId, keyFilename});
@@ -40,7 +43,7 @@ app.listen(port, () => {
 
 // Dialogflow
 const credentials = {
-    keyFilename: "./dev/"
+    keyFilename: "./dev/service_account.json"
   };
 const sessionClient = new dialogflow.SessionsClient(credentials);
 const contextsClient = new dialogflow.ContextsClient(credentials);
@@ -254,14 +257,14 @@ bot.on("callback_query", async function(data){
 });
 
 async function gestionaMensajesDF(responses, chatId){
+    // Alimentamos el sistema de analytics
+  enviaInfoAnalyticsChatBase(responses, chatId)
+
   var mensajes = responses[0].queryResult.fulfillmentMessages;
   console.log("-> Respuesta de DF: "+JSON.stringify(mensajes));
   console.log("-> QueryResult de DF: "+JSON.stringify(responses[0].queryResult));
 
-  var newArray = responses[0].queryResult.outputContexts.filter(function (el) {
-    return el.name.includes('pedido')
-  });
-
+  var newArray = responses[0].queryResult.outputContexts.filter(el => el.name.includes('pedidocx'));
   if(newArray.length>0){ //Si Dialogflow se ha metido en un contexto pedido
     const sessionPathCX = clientCX.projectLocationAgentSessionPath(
       projectId,
@@ -391,4 +394,127 @@ async function consultaUsuario(userId){
     }
   }
   return(data)
+}
+
+function enviaInfoAnalyticsChatBase(responses, chatId){
+  // Si el intent ejecutado es el de por defecto se marca setAsNotHandled
+if (responses[0].queryResult.intent.isFallback){
+  chatbase.newMessage(ChatBaseApiKey, 'usuario_prueba')
+  .setPlatform('Telegram')
+  .setAsTypeUser()
+  .setMessage(responses[0].queryResult.queryText.toString())
+  .setVersion('1.0')
+  .setUserId(chatId.toString())
+  .setAsNotHandled() 
+  .setIntent(responses[0].queryResult.intent.displayName.toString())
+  .setTimestamp(Date.now().toString())
+  .send()
+  .catch(err => console.error(err));
+  } else {
+    //El intent ejecutado es cualquier otro se marca como setAsHandled
+    chatbase.newMessage(ChatBaseApiKey, 'usuario_prueba')
+    .setPlatform('Telegram')
+    .setAsTypeUser()
+    .setMessage(responses[0].queryResult.queryText.toString())
+    .setVersion('1.0')
+    .setUserId(chatId.toString())
+    .setAsHandled() 
+    .setIntent(responses[0].queryResult.intent.displayName.toString())
+    .setTimestamp(Date.now().toString())
+    .send()
+    .catch(err => console.error(err));
+  }
+  //En chatbase se deben enviar por separado también las respuetas del chatbot. Ahora no 
+  //hace falta informar del intent que se ha despertado. El intent se pone en el mensaje de
+  //usuario ocn la función setIntent. En los mensajes de agente no hace falta.
+  //Recorremos con un bucle todos los mensajes de agente
+  var mensajes = responses[0].queryResult.fulfillmentMessages;
+  let mensajesEspecificosTelegram = false;
+  for (var i = 0; i < mensajes.length; i++) {
+    if (mensajes[i].platform === 'TELEGRAM') {
+      mensajesEspecificosTelegram = true;
+      // Cards
+      if (mensajes[i].message === 'card') {
+        //if (mensajes[i].card.title) await bot.sendMessage(chatId, mensajes[i].card.title)
+        if (mensajes[i].card.imageUri) {
+          chatbase.newMessage(ChatBaseApiKey, 'usuario_prueba')
+          .setPlatform('Telegram')
+          .setAsTypeAgent()
+          .setMessage('Imagen')
+          .setVersion('1.0')
+          .setUserId(chatId.toString())
+          .setTimestamp(Date.now().toString())
+          .send()
+          .catch(err => console.error(err));
+        }
+        if (mensajes[i].card.buttons) {
+          var texto_botones = []
+          const btns = mensajes[i].card.buttons;
+          for (var j = 0; j < btns.length; j++) {
+            texto_botones.push(btns[j].text)
+          }
+          chatbase.newMessage(ChatBaseApiKey, 'usuario_prueba')
+          .setPlatform('Telegram')
+          .setAsTypeAgent()
+          .setMessage(`${mensajes[i].card.title}: ${texto_botones.toString()}` )
+          .setVersion('1.0')
+          .setUserId(chatId.toString())
+          .setTimestamp(Date.now().toString())
+          .send()
+          .catch(err => console.error(err));
+        }
+      } 
+      // Text
+      else if (mensajes[i].message === 'text'){
+        chatbase.newMessage(ChatBaseApiKey, 'usuario_prueba')
+        .setPlatform('Telegram')
+        .setAsTypeAgent()
+        .setMessage(mensajes[i].text.text[0].toString())
+        .setVersion('1.0')
+        .setUserId(chatId.toString())
+        .setTimestamp(Date.now().toString())
+        .send()
+        .catch(err => console.error(err));
+      } 
+      // quickReplies
+      else if (mensajes[i].message === 'quickReplies'){
+        // Extraemos el texto de los botones en el mensaje para Telegram
+        var botones_DF = mensajes[i].quickReplies.quickReplies;
+        // Creamos el mensaje de agente: titulo de los quickreplies + Texto de los botones
+        chatbase.newMessage(ChatBaseApiKey, 'usuario_prueba')
+        .setPlatform('Telegram')
+        .setAsTypeAgent()
+        .setMessage(`${mensajes[i].quickReplies.title}: ${botones_DF.toString()}`)
+        .setVersion('1.0')
+        .setUserId(chatId.toString())
+        .setTimestamp(Date.now().toString())
+        .send()
+        .catch(err => console.error(err));
+      // Imagen
+    } else if (mensajes[i].message === 'image'){
+        chatbase.newMessage(ChatBaseApiKey, 'usuario_prueba')
+        .setPlatform('Telegram')
+        .setAsTypeAgent()
+        .setMessage('Imagen')
+        .setVersion('1.0')
+        .setUserId(chatId.toString())
+        .setTimestamp(Date.now().toString())
+        .send()
+        .catch(err => console.error(err));
+      } 
+    }
+    if (mensajes[i].platform === 'PLATFORM_UNSPECIFIED' && !mensajesEspecificosTelegram) {
+      // Si en Dialogflow no hay mensajes específicos en el canal Telegram, nuestro adaptador
+      // de canal toma los mensajes que existan en el canal por defecto.
+      chatbase.newMessage(ChatBaseApiKey, 'usuario_prueba')
+        .setPlatform('Telegram')
+        .setAsTypeAgent()
+        .setMessage(mensajes[i].text.text[0].toString())
+        .setVersion('1.0')
+        .setUserId(chatId.toString())
+        .setTimestamp(Date.now().toString())
+        .send()
+        .catch(err => console.error(err));
+    }
+  }
 }
